@@ -1,4 +1,4 @@
-# Spec: Profile Page Design
+t # Spec: Profile Page Design
 
 ## Overview
 Implement the `/profile` page for logged-in users. The page displays the user's account information (name, email, member since date) alongside a summary of their expense activity (total expenses logged, total amount spent, and most-used category). The route replaces the existing stub and enforces a login guard — unauthenticated visitors are redirected to `/login`. A "Profile" link is added to the navbar for logged-in users so the page is reachable from anywhere in the app.

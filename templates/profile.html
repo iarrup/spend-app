@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}My Profile — Spendly{% endblock %}
+
+{% block content %}
+<div class="profile-page">
+    <div class="profile-inner">
+
+        <div class="profile-header">
+            <h1>My Profile</h1>
+            <p>Your account details and spending summary.</p>
+        </div>
+
+        <div class="profile-card">
+            <div class="profile-field">
+                <span class="profile-label">Name</span>
+                <span class="profile-value">{{ user.name }}</span>
+            </div>
+            <div class="profile-field">
+                <span class="profile-label">Email</span>
+                <span class="profile-value">{{ user.email }}</span>
+            </div>
+            <div class="profile-field">
+                <span class="profile-label">Member since</span>
+                <span class="profile-value">{{ member_since }}</span>
+            </div>
+        </div>
+
+        <div class="mock-stat-row profile-stats">
+            <div class="mock-stat">
+                <span class="mock-stat-label">Total Expenses</span>
+                <span class="mock-stat-value">{{ total_count }}</span>
+            </div>
+            <div class="mock-stat">
+                <span class="mock-stat-label">Total Spent</span>
+                <span class="mock-stat-value">₹ {{ "%.2f"|format(total_spent) }}</span>
+            </div>
+            <div class="mock-stat">
+                <span class="mock-stat-label">Top Category</span>
+                <span class="mock-stat-value">{{ top_category or "—" }}</span>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

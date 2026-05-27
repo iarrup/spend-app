@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, session
 from werkzeug.security import generate_password_hash, check_password_hash
 from database.db import get_db, init_db, seed_db
@@ -76,7 +77,7 @@ def login():
 
     session["user_id"]   = row["id"]
     session["user_name"] = row["name"]
-    return redirect(url_for("landing"))
+    return redirect(url_for("profile"))
 
 
 @app.route("/terms")
@@ -101,7 +102,42 @@ def logout():
 
 @app.route("/profile")
 def profile():
-    return "Profile page — coming in Step 4"
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+
+    conn = get_db()
+    try:
+        user = conn.execute(
+            "SELECT id, name, email, created_at FROM users WHERE id = ?",
+            (session["user_id"],),
+        ).fetchone()
+
+        stats = conn.execute(
+            "SELECT COUNT(*) AS total_count, COALESCE(SUM(amount), 0) AS total_spent"
+            " FROM expenses WHERE user_id = ?",
+            (session["user_id"],),
+        ).fetchone()
+
+        top_cat_row = conn.execute(
+            "SELECT category FROM expenses WHERE user_id = ?"
+            " GROUP BY category ORDER BY COUNT(*) DESC LIMIT 1",
+            (session["user_id"],),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    member_since = datetime.strptime(
+        user["created_at"], "%Y-%m-%d %H:%M:%S"
+    ).strftime("%-d %B %Y")
+
+    return render_template(
+        "profile.html",
+        user=user,
+        member_since=member_since,
+        total_count=stats["total_count"],
+        total_spent=stats["total_spent"],
+        top_category=top_cat_row["category"] if top_cat_row else None,
+    )
 
 
 @app.route("/expenses/add")

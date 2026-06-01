@@ -130,6 +130,8 @@ def profile():
         user["created_at"], "%Y-%m-%d %H:%M:%S"
     ).strftime("%-d %B %Y")
 
+    success = "Profile updated successfully." if request.args.get("updated") else None
+
     return render_template(
         "profile.html",
         user=user,
@@ -137,7 +139,148 @@ def profile():
         total_count=stats["total_count"],
         total_spent=stats["total_spent"],
         top_category=top_cat_row["category"] if top_cat_row else None,
+        success=success,
     )
+
+
+@app.route("/profile", methods=["POST"])
+def update_profile():
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+
+    name             = request.form.get("name", "").strip()
+    email            = request.form.get("email", "").strip()
+    current_password = request.form.get("current_password", "")
+    new_password     = request.form.get("new_password", "")
+    confirm_password = request.form.get("confirm_password", "")
+
+    def render_error(msg):
+        conn = get_db()
+        try:
+            user = conn.execute(
+                "SELECT id, name, email, created_at FROM users WHERE id = ?",
+                (session["user_id"],),
+            ).fetchone()
+            stats = conn.execute(
+                "SELECT COUNT(*) AS total_count, COALESCE(SUM(amount), 0) AS total_spent"
+                " FROM expenses WHERE user_id = ?",
+                (session["user_id"],),
+            ).fetchone()
+            top_cat_row = conn.execute(
+                "SELECT category FROM expenses WHERE user_id = ?"
+                " GROUP BY category ORDER BY COUNT(*) DESC LIMIT 1",
+                (session["user_id"],),
+            ).fetchone()
+        finally:
+            conn.close()
+        member_since = datetime.strptime(
+            user["created_at"], "%Y-%m-%d %H:%M:%S"
+        ).strftime("%-d %B %Y")
+        return render_template(
+            "profile.html",
+            user=user,
+            member_since=member_since,
+            total_count=stats["total_count"],
+            total_spent=stats["total_spent"],
+            top_category=top_cat_row["category"] if top_cat_row else None,
+            error=msg,
+        )
+
+    if not name or not email:
+        return render_error("Name and email are required.")
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT password_hash FROM users WHERE id = ?",
+            (session["user_id"],),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not check_password_hash(row["password_hash"], current_password):
+        return render_error("Current password is incorrect.")
+
+    if new_password:
+        if len(new_password) < 8:
+            return render_error("New password must be at least 8 characters.")
+        if new_password != confirm_password:
+            return render_error("New passwords do not match.")
+        new_hash = generate_password_hash(new_password)
+    else:
+        new_hash = row["password_hash"]
+
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE users SET name = ?, email = ?, password_hash = ? WHERE id = ?",
+            (name, email, new_hash, session["user_id"]),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        return render_error("That email is already in use by another account.")
+    finally:
+        conn.close()
+
+    session["user_name"] = name
+    return redirect(url_for("profile", updated=1))
+
+
+@app.route("/profile/delete", methods=["POST"])
+def delete_profile():
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+
+    password = request.form.get("password", "")
+    user_id  = session["user_id"]
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row or not check_password_hash(row["password_hash"], password):
+        conn = get_db()
+        try:
+            user = conn.execute(
+                "SELECT id, name, email, created_at FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+            stats = conn.execute(
+                "SELECT COUNT(*) AS total_count, COALESCE(SUM(amount), 0) AS total_spent"
+                " FROM expenses WHERE user_id = ?", (user_id,),
+            ).fetchone()
+            top_cat_row = conn.execute(
+                "SELECT category FROM expenses WHERE user_id = ?"
+                " GROUP BY category ORDER BY COUNT(*) DESC LIMIT 1", (user_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        member_since = datetime.strptime(
+            user["created_at"], "%Y-%m-%d %H:%M:%S"
+        ).strftime("%-d %B %Y")
+        return render_template(
+            "profile.html",
+            user=user,
+            member_since=member_since,
+            total_count=stats["total_count"],
+            total_spent=stats["total_spent"],
+            top_category=top_cat_row["category"] if top_cat_row else None,
+            delete_error="Incorrect password. Account not deleted.",
+        )
+
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM expenses WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    session.clear()
+    return redirect(url_for("landing"))
 
 
 @app.route("/expenses/add")

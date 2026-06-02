@@ -35,6 +35,39 @@
             </div>
         </div>
 
+        <div class="profile-card">
+            <form method="get" action="{{ url_for('profile') }}">
+                <div class="date-filter-fields">
+                    <div class="form-group">
+                        <label for="from_date">From</label>
+                        <input type="date" id="from_date" name="from_date"
+                               class="form-input" value="{{ from_date }}">
+                    </div>
+                    <div class="form-group">
+                        <label for="to_date">To</label>
+                        <input type="date" id="to_date" name="to_date"
+                               class="form-input" value="{{ to_date }}">
+                    </div>
+                    <button type="submit" class="btn-submit">Filter</button>
+                </div>
+                <div class="date-filter-presets">
+                    {% for label, (fd, td) in preset_ranges.items() %}
+                        {% if fd or td %}
+                            <a href="{{ url_for('profile', from_date=fd, to_date=td) }}"
+                               class="preset-link{{ ' active' if from_date == fd and to_date == td else '' }}">{{ label }}</a>
+                        {% else %}
+                            <a href="{{ url_for('profile') }}"
+                               class="preset-link{{ ' active' if not from_date and not to_date else '' }}">{{ label }}</a>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </form>
+        </div>
+
+        {% if from_date or to_date %}
+        <p class="filter-active-label">Showing: {{ from_date or "…" }} → {{ to_date or "…" }}</p>
+        {% endif %}
+
         <div class="mock-stat-row profile-stats">
             <div class="mock-stat">
                 <span class="mock-stat-label">Total Expenses</span>

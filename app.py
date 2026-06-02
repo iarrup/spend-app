@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session
 from werkzeug.security import generate_password_hash, check_password_hash
 from database.db import get_db, init_db, seed_db
@@ -10,6 +10,26 @@ app.secret_key = "dev-secret-change-in-prod"
 with app.app_context():
     init_db()
     seed_db()
+
+
+def _preset_ranges():
+    today            = date.today()
+    first_of_month   = today.replace(day=1)
+    last_month_end   = first_of_month - timedelta(days=1)
+    last_month_start = last_month_end.replace(day=1)
+    return {
+        "This month":    (first_of_month.isoformat(), today.isoformat()),
+        "Last month":    (last_month_start.isoformat(), last_month_end.isoformat()),
+        "Last 3 months": ((today - timedelta(days=90)).isoformat(), today.isoformat()),
+        "All time":      ("", ""),
+    }
+
+
+def _parse_date(s):
+    try:
+        return date.fromisoformat(s) if s else None
+    except ValueError:
+        return None
 
 
 # ------------------------------------------------------------------ #
@@ -105,6 +125,24 @@ def profile():
     if not session.get("user_id"):
         return redirect(url_for("login"))
 
+    from_d    = _parse_date(request.args.get("from_date", "").strip())
+    to_d      = _parse_date(request.args.get("to_date", "").strip())
+    from_date = from_d.isoformat() if from_d else ""
+    to_date   = to_d.isoformat()   if to_d   else ""
+
+    clauses = ["user_id = ?"]
+    params  = [session["user_id"]]
+    if from_d and to_d:
+        clauses.append("date BETWEEN ? AND ?")
+        params += [from_date, to_date]
+    elif from_d:
+        clauses.append("date >= ?")
+        params.append(from_date)
+    elif to_d:
+        clauses.append("date <= ?")
+        params.append(to_date)
+    where = " WHERE " + " AND ".join(clauses)
+
     conn = get_db()
     try:
         user = conn.execute(
@@ -114,14 +152,14 @@ def profile():
 
         stats = conn.execute(
             "SELECT COUNT(*) AS total_count, COALESCE(SUM(amount), 0) AS total_spent"
-            " FROM expenses WHERE user_id = ?",
-            (session["user_id"],),
+            " FROM expenses" + where,
+            params,
         ).fetchone()
 
         top_cat_row = conn.execute(
-            "SELECT category FROM expenses WHERE user_id = ?"
+            "SELECT category FROM expenses" + where +
             " GROUP BY category ORDER BY COUNT(*) DESC LIMIT 1",
-            (session["user_id"],),
+            params,
         ).fetchone()
     finally:
         conn.close()
@@ -140,6 +178,9 @@ def profile():
         total_spent=stats["total_spent"],
         top_category=top_cat_row["category"] if top_cat_row else None,
         success=success,
+        from_date=from_date,
+        to_date=to_date,
+        preset_ranges=_preset_ranges(),
     )
 
 
@@ -184,6 +225,9 @@ def update_profile():
             total_spent=stats["total_spent"],
             top_category=top_cat_row["category"] if top_cat_row else None,
             error=msg,
+            from_date="",
+            to_date="",
+            preset_ranges=_preset_ranges(),
         )
 
     if not name or not email:
@@ -269,6 +313,9 @@ def delete_profile():
             total_spent=stats["total_spent"],
             top_category=top_cat_row["category"] if top_cat_row else None,
             delete_error="Incorrect password. Account not deleted.",
+            from_date="",
+            to_date="",
+            preset_ranges=_preset_ranges(),
         )
 
     conn = get_db()

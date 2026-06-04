@@ -1,4 +1,6 @@
 import sqlite3
+import math
+import re
 from datetime import datetime, date, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -10,6 +12,8 @@ app.secret_key = "dev-secret-change-in-prod"
 with app.app_context():
     init_db()
     seed_db()
+
+VALID_CATEGORIES = ["Food", "Transport", "Bills", "Health", "Entertainment", "Shopping", "Other"]
 
 
 def _preset_ranges():
@@ -168,7 +172,12 @@ def profile():
         user["created_at"], "%Y-%m-%d %H:%M:%S"
     ).strftime("%-d %B %Y")
 
-    success = "Profile updated successfully." if request.args.get("updated") else None
+    if request.args.get("updated"):
+        success = "Profile updated successfully."
+    elif request.args.get("added"):
+        success = "Expense added successfully."
+    else:
+        success = None
 
     return render_template(
         "profile.html",
@@ -330,9 +339,62 @@ def delete_profile():
     return redirect(url_for("landing"))
 
 
-@app.route("/expenses/add")
+@app.route("/expenses/add", methods=["GET", "POST"])
 def add_expense():
-    return "Add expense — coming in Step 7"
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+
+    if request.method == "GET":
+        return render_template("add_expense.html", categories=VALID_CATEGORIES, today=date.today().isoformat())
+
+    amount_str  = request.form.get("amount", "").strip()
+    category    = request.form.get("category", "").strip()
+    date_str    = request.form.get("date", "").strip()
+    description = request.form.get("description", "").strip() or None
+
+    def render_error(msg):
+        return render_template(
+            "add_expense.html",
+            error=msg,
+            categories=VALID_CATEGORIES,
+            amount=amount_str,
+            category=category,
+            date=date_str,
+            description=description or "",
+            today=date.today().isoformat(),
+        )
+
+    try:
+        amount = float(amount_str)
+        if not math.isfinite(amount) or amount <= 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        return render_error("Amount must be a positive number.")
+
+    if category not in VALID_CATEGORIES:
+        return render_error("Please select a valid category.")
+
+    if description and len(description) > 500:
+        return render_error("Description must be 500 characters or fewer.")
+
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
+        return render_error("Please enter a valid date.")
+    try:
+        date.fromisoformat(date_str)
+    except ValueError:
+        return render_error("Please enter a valid date.")
+
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO expenses (user_id, amount, category, date, description) VALUES (?, ?, ?, ?, ?)",
+            (session["user_id"], amount, category, date_str, description),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return redirect(url_for("profile", added=1))
 
 
 @app.route("/expenses/<int:id>/edit")

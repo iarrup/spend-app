@@ -1,8 +1,9 @@
+import os
 import sqlite3
 import math
 import re
 from datetime import datetime, date, timedelta
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, abort
 from werkzeug.security import generate_password_hash, check_password_hash
 from database.db import get_db, init_db, seed_db
 
@@ -34,6 +35,31 @@ def _parse_date(s):
         return date.fromisoformat(s) if s else None
     except ValueError:
         return None
+
+
+def _validate_expense_form(amount_str, category, date_str, description):
+    """Returns (amount_float, error_message). error_message is None on success."""
+    try:
+        amount = float(amount_str)
+        if not math.isfinite(amount) or amount <= 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        return None, "Amount must be a positive number."
+
+    if category not in VALID_CATEGORIES:
+        return None, "Please select a valid category."
+
+    if description and len(description) > 500:
+        return None, "Description must be 500 characters or fewer."
+
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
+        return None, "Please enter a valid date."
+    try:
+        date.fromisoformat(date_str)
+    except ValueError:
+        return None, "Please enter a valid date."
+
+    return amount, None
 
 
 # ------------------------------------------------------------------ #
@@ -165,6 +191,12 @@ def profile():
             " GROUP BY category ORDER BY COUNT(*) DESC LIMIT 1",
             params,
         ).fetchone()
+
+        expenses = conn.execute(
+            "SELECT id, amount, category, date, description FROM expenses"
+            + where + " ORDER BY date DESC, id DESC",
+            params,
+        ).fetchall()
     finally:
         conn.close()
 
@@ -176,6 +208,8 @@ def profile():
         success = "Profile updated successfully."
     elif request.args.get("added"):
         success = "Expense added successfully."
+    elif request.args.get("edited"):
+        success = "Expense updated successfully."
     else:
         success = None
 
@@ -186,6 +220,7 @@ def profile():
         total_count=stats["total_count"],
         total_spent=stats["total_spent"],
         top_category=top_cat_row["category"] if top_cat_row else None,
+        expenses=expenses,
         success=success,
         from_date=from_date,
         to_date=to_date,
@@ -364,25 +399,9 @@ def add_expense():
             today=date.today().isoformat(),
         )
 
-    try:
-        amount = float(amount_str)
-        if not math.isfinite(amount) or amount <= 0:
-            raise ValueError
-    except (ValueError, TypeError):
-        return render_error("Amount must be a positive number.")
-
-    if category not in VALID_CATEGORIES:
-        return render_error("Please select a valid category.")
-
-    if description and len(description) > 500:
-        return render_error("Description must be 500 characters or fewer.")
-
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
-        return render_error("Please enter a valid date.")
-    try:
-        date.fromisoformat(date_str)
-    except ValueError:
-        return render_error("Please enter a valid date.")
+    amount, err = _validate_expense_form(amount_str, category, date_str, description)
+    if err:
+        return render_error(err)
 
     conn = get_db()
     try:
@@ -397,9 +416,66 @@ def add_expense():
     return redirect(url_for("profile", added=1))
 
 
-@app.route("/expenses/<int:id>/edit")
+@app.route("/expenses/<int:id>/edit", methods=["GET", "POST"])
 def edit_expense(id):
-    return "Edit expense — coming in Step 8"
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+
+    conn = get_db()
+    try:
+        expense = conn.execute(
+            "SELECT id, user_id, amount, category, date, description FROM expenses WHERE id = ?", (id,)
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if expense is None or expense["user_id"] != session["user_id"]:
+        abort(404)
+
+    if request.method == "GET":
+        return render_template(
+            "edit_expense.html",
+            expense=expense,
+            categories=VALID_CATEGORIES,
+            amount=expense["amount"],
+            category=expense["category"],
+            date=expense["date"],
+            description=expense["description"] or "",
+        )
+
+    amount_str  = request.form.get("amount", "").strip()
+    category    = request.form.get("category", "").strip()
+    date_str    = request.form.get("date", "").strip()
+    description = request.form.get("description", "").strip() or None
+
+    def render_error(msg):
+        return render_template(
+            "edit_expense.html",
+            error=msg,
+            expense=expense,
+            categories=VALID_CATEGORIES,
+            amount=amount_str,
+            category=category,
+            date=date_str,
+            description=description or "",
+        )
+
+    amount, err = _validate_expense_form(amount_str, category, date_str, description)
+    if err:
+        return render_error(err)
+
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE expenses SET amount = ?, category = ?, date = ?, description = ?"
+            " WHERE id = ? AND user_id = ?",
+            (amount, category, date_str, description, id, session["user_id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return redirect(url_for("profile", edited=1))
 
 
 @app.route("/expenses/<int:id>/delete")
@@ -408,4 +484,4 @@ def delete_expense(id):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    app.run(debug=os.environ.get("FLASK_DEBUG", "0") == "1", port=5001)

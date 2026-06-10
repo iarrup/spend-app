@@ -210,6 +210,8 @@ def profile():
         success = "Expense added successfully."
     elif request.args.get("edited"):
         success = "Expense updated successfully."
+    elif request.args.get("deleted"):
+        success = "Expense deleted successfully."
     else:
         success = None
 
@@ -478,9 +480,33 @@ def edit_expense(id):
     return redirect(url_for("profile", edited=1))
 
 
-@app.route("/expenses/<int:id>/delete")
+@app.route("/expenses/<int:id>/delete", methods=["POST"])
 def delete_expense(id):
-    return "Delete expense — coming in Step 9"
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+
+    conn = get_db()
+    try:
+        expense = conn.execute(
+            "SELECT id, user_id FROM expenses WHERE id = ?", (id,)
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if expense is None or expense["user_id"] != session["user_id"]:
+        abort(404)
+
+    conn = get_db()
+    try:
+        conn.execute(
+            "DELETE FROM expenses WHERE id = ? AND user_id = ?",
+            (id, session["user_id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return redirect(url_for("profile", deleted=1))
 
 
 if __name__ == "__main__":

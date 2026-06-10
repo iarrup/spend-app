@@ -104,9 +104,15 @@
                         <td style="padding: 0.6rem 0.75rem;">{{ e.category }}</td>
                         <td style="padding: 0.6rem 0.75rem;">₹ {{ "%.2f"|format(e.amount) }}</td>
                         <td style="padding: 0.6rem 0.75rem; color: var(--ink-muted);">{{ e.description or "—" }}</td>
-                        <td style="padding: 0.6rem 0.75rem;">
+                        <td style="padding: 0.6rem 0.75rem; white-space: nowrap;">
                             <a href="{{ url_for('edit_expense', id=e.id) }}"
                                style="color: var(--accent); text-decoration: none; font-weight: 500;">Edit</a>
+                            <form method="POST" action="{{ url_for('delete_expense', id=e.id) }}"
+                                  style="display: inline; margin-left: 0.75rem;">
+                                <button type="submit"
+                                        style="background: none; border: none; padding: 0; cursor: pointer;
+                                               color: var(--danger); font-weight: 500; font-size: inherit;">Delete</button>
+                            </form>
                         </td>
                     </tr>
                     {% endfor %}
